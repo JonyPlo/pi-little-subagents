@@ -1,16 +1,16 @@
 # pi-little-subagents
 
-Lean, read-only subagents for the [Pi coding agent](https://pi.dev), built for small local models.
+Lean, read-only subagents for the [Pi coding agent](https://pi.dev), built for small local models with small context windows.
 
-When you run a local model (say, a 20–30B model on a single GPU), every token in the context window costs prefill time, decode speed and answer quality. Exploring a codebase or reading web pages can burn tens of thousands of tokens that the main session then drags along for the rest of the conversation.
+When you run a local model on a single GPU, the context window is your scarcest resource. Every token costs prefill time, decode speed and answer quality, and with a 32k–128k window there is not much room to waste. Exploring a codebase or reading web pages can burn tens of thousands of tokens that the main session then drags along for the rest of the conversation.
 
 This extension adds **one tool, `subagent`**, that hands that kind of work to an isolated child Pi session. The child reads, searches and reasons in its own context and returns a short report. **Only the report enters your main session.**
 
-> One real measurement: mapping the backend of a ~1,000-line Express project left the main session at about 15k tokens of a 180k window, versus about 30–35k when the main model explored it itself. That is a single run on a single project — yours will vary.
+> **A real measurement from my own setup** (a single run, so treat it as an example, not a benchmark): my Pi runs with a local Qwen3.8-27B and a 180k window, with all my extensions loaded (about 15k tokens of prefill in total). I asked the agent to map the backend of a ~1,000-line Express project. With this extension, the `scout` subagent did the exploration and my main session stayed at about 15k tokens, barely moving. Without it, the main model explored the project itself and the session grew to about 30–35k. On a 180k window that is a nice saving; on a 64k window, the same difference is the gap between using a quarter and using half of your context. I have not measured this on windows that small yet.
 
 ## Design goals
 
-- **Tiny footprint.** One tool, four short rules, four one-line agent descriptions. It is designed to add only a few hundred tokens of prefill; measure it on your own setup.
+- **Tiny footprint.** One tool, four short rules, four one-line agent descriptions. The extension adds roughly **1k tokens of prefill** (an approximate figure, not an exact measurement; check it on your own setup).
 - **Works out of the box.** The rules for *when* to delegate travel inside the tool (description and prompt guidelines). You do not need to edit `AGENTS.md` or `APPEND_SYSTEM.md`.
 - **Local first.** Children use the same model as your main agent by default, and run one at a time.
 - **Honest reports.** If a child answers without using a single tool, the report is flagged as possibly made up.
@@ -24,9 +24,10 @@ This extension adds **one tool, `subagent`**, that hands that kind of work to an
 | Node.js | `>= 22.19.0` (Pi's own requirement) |
 | OS | **Tested on Windows only.** Linux and macOS are untested; the process-killing code path on those systems has never been exercised. |
 | Models | Tested with a local Qwen3.8-27B as the main model and subagent model, and with Gemini Flash-Lite (Google login) as an optional per-agent override. |
+| Context window | Measured on a 180k window. The design targets smaller windows (roughly 32k–128k), but that has **not been tested** yet. |
 | `researcher` agent | Needs the [`pi-web-access`](https://pi.dev/packages) package installed. If it is missing, that agent simply does not appear. |
 
-If you try it on another OS or Pi version, please open an issue with what happened.
+If you try it on another OS, Pi version, model or context size, please open an issue with what happened.
 
 ## Install
 
@@ -54,7 +55,7 @@ Just talk to Pi normally:
 
 > explore how the backend of this project is structured
 
-The tool's description and rules tell the model to delegate exploration, web research and reviews instead of doing them itself. You can also ask for it explicitly: *"use the scout subagent to find where the Steam API is called"*.
+The tool's description and rules tell the model to delegate exploration, web research and reviews instead of doing them itself. You can also ask for it explicitly: *"use the scout subagent to find where authentication is handled"*.
 
 Whether the model delegates on its own depends on the model. The rules push it, but they cannot force it.
 
@@ -128,7 +129,7 @@ Children start with **no extensions, no skills, no AGENTS.md and no MCP**, excep
 
 ## What a report looks like
 
-- Reports are capped at **8,000 characters** (~2–3k tokens). If a child writes more, the full text is saved to a file in your temp folder (`pi-subagent/`) and the report ends with its path, so nothing is lost. The main model is told to read it only if something is missing.
+- Reports are capped at **8,000 characters** (~2–3k tokens). If a child writes more, the full text is saved to a file in your temp folder (`pi-subagent/`) and the report ends with its path, so nothing is lost. The main model is told to read it only if something is missing. Keep this in mind on very small windows: a full-size report is a noticeable share of a 32k context.
 - The footer shows the agent, the model that ran and the number of tool calls: `[scout · provider/model · 15 tool calls]`.
 - While a child runs, the tool card shows a live `N tool calls…` counter.
 - If the child made **zero** tool calls, the report starts with a warning.
@@ -153,7 +154,7 @@ The extension reads Pi's JSON event stream, keeps the last assistant message as 
 - **Reports can be wrong.** Scouts occasionally shift a line number or invent a detail. The rules tell the main model to re-read exact lines before editing; do the same when it matters.
 - **Delegation is up to the model.** Small models sometimes explore on their own anyway.
 - Subagents cannot launch further subagents.
-- Tested on Windows and Pi 1.3.0 only (see above).
+- Tested on Windows and Pi 1.3.0 only, and only on a 180k context window (see above).
 
 ## Troubleshooting
 
@@ -166,15 +167,11 @@ The extension reads Pi's JSON event stream, keeps the last assistant message as 
 | Gemini returns `MALFORMED_FUNCTION_CALL` | Seen once during development with a different `--tools` form. The fallback retries with your main model |
 | A subagent always times out | Raise `timeout` in its header; local models can be slow on big explorations |
 
-## Alternatives
-
-[`pi-subagents-lite`](https://www.npmjs.com/package/pi-subagents-lite) is a much more complete subagent package (background agents, steering, a live widget, concurrency limits, a watchdog). This project is deliberately smaller: one tool, serial, tuned for small local models and low prefill. Pick the one that fits your setup.
-
 ## Development
 
 ```bash
-git clone https://github.com/JonyPlo/pi-little-agents.git
-cd pi-little-agents
+git clone https://github.com/JonyPlo/pi-little-subagents.git
+cd pi-little-subagents
 pi -e .                 # run Pi with the local extension
 npm pack --dry-run      # check what would be published
 ```

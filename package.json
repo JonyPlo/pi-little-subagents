@@ -1,6 +1,6 @@
 {
   "name": "pi-little-subagents",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Lean, read-only subagents for the Pi coding agent, built for small local models: keep your main context small by delegating exploration, web research and review.",
   "keywords": [
     "pi-package",
@@ -15,11 +15,11 @@
   "author": "JonyPlo",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JonyPlo/pi-little-agents.git"
+    "url": "git+https://github.com/JonyPlo/pi-little-subagents.git"
   },
-  "homepage": "https://github.com/JonyPlo/pi-little-agents#readme",
+  "homepage": "https://github.com/JonyPlo/pi-little-subagents#readme",
   "bugs": {
-    "url": "https://github.com/JonyPlo/pi-little-agents/issues"
+    "url": "https://github.com/JonyPlo/pi-little-subagents/issues"
   },
   "files": [
     "extensions",
