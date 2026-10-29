@@ -19,7 +19,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // Package layout: <root>/extensions/subagent.ts and <root>/agents/*.md (an agents/ folder next to this file also works).
 const BUNDLED_DIR = [join(HERE, "..", "agents"), join(HERE, "agents")].find((d) => existsSync(d)) ?? join(HERE, "..", "agents");
 const USER_DIR = join(AGENT_DIR, "subagents");
-const MAX_REPORT_CHARS = 8000; // ~2-3k tokens; a longer report is saved to a file, not lost
+const DEFAULT_MAX_REPORT_CHARS = 24000; // ~6-7k tokens: still far below reading the files; longer reports are saved to a file
 const DEFAULT_TIMEOUT_S = 600; // local models are slow; override per agent with `timeout:`
 
 interface Agent {
@@ -32,6 +32,7 @@ interface Agent {
   evidence: boolean; // warn when the report made zero tool calls
   fallback: boolean; // on failure, retry once with the parent's model
   timeout: number; // seconds
+  maxChars: number; // largest report returned to the main session
   prompt: string;
 }
 
@@ -58,6 +59,7 @@ function parseAgent(file: string, name: string): Agent | null {
     evidence: fm.evidence !== "false",
     fallback: fm.fallback !== "false", // on by default; only matters when the agent sets its own model
     timeout: Number(fm.timeout) > 0 ? Number(fm.timeout) : DEFAULT_TIMEOUT_S,
+    maxChars: Number(fm.max_chars) > 0 ? Number(fm.max_chars) : DEFAULT_MAX_REPORT_CHARS,
     prompt: m[2].trim(),
   };
 }
@@ -255,19 +257,28 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return p;
 }
 
-function finalizeReport(text: string, agentName: string): string {
-  if (text.length <= MAX_REPORT_CHARS) return text;
-  let tail = `\n\n… (report truncated at ${MAX_REPORT_CHARS} characters)`;
+function finalizeReport(text: string, agent: Agent): string {
+  const max = agent.maxChars;
+  if (text.length <= max) return text;
+  // Cut at a line boundary when one is close to the limit, so the report does not stop mid-sentence.
+  let cut = text.slice(0, max);
+  const nl = cut.lastIndexOf("\n");
+  if (nl > max * 0.7) cut = cut.slice(0, nl);
+  const lines = text.split("\n").length;
+  let tail = `\n\n… (report truncated: showing ${cut.length} of ${text.length} characters)`;
   try {
     const dir = join(tmpdir(), "pi-subagent");
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, `${Date.now()}-${agentName}.md`).replace(/\\/g, "/");
+    const file = join(dir, `${Date.now()}-${agent.name}.md`).replace(/\\/g, "/");
     writeFileSync(file, text, "utf8");
-    tail = `\n\n… (report truncated at ${MAX_REPORT_CHARS} characters; the full report is at ${file} — use \`read\` only if something is missing; do not launch another subagent for the same thing)`;
+    tail =
+      `\n\n… (report truncated: showing ${cut.length} of ${text.length} characters. The FULL report is saved at ${file} ` +
+      `(${lines} lines, some very long). If something is missing, \`read\` that file whole, without an offset; ` +
+      `do not launch another subagent for the same thing)`;
   } catch {
     /* keep the plain notice */
   }
-  return text.slice(0, MAX_REPORT_CHARS).trimEnd() + tail;
+  return cut.trimEnd() + tail;
 }
 
 function parentModel(ctx: any): string | undefined {
@@ -330,7 +341,7 @@ export default function (pi: ExtensionAPI) {
       if (r.warnings.length) note += `[warning: ${r.warnings.join("; ")}]\n`;
       if (failed(r)) return fail(`${note}${agent.name} failed: ${r.error || "no response"}`);
 
-      let body = finalizeReport(r.text, agent.name);
+      let body = finalizeReport(r.text, agent);
       if (agent.evidence && r.toolCalls === 0) {
         body = "WARNING: this subagent answered WITHOUT using any tool; it may have made things up. Verify before relying on it.\n\n" + body;
       }
